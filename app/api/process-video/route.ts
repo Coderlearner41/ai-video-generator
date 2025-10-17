@@ -25,10 +25,11 @@ export async function POST(req: Request) {
     const chartPath = path.join(tempDir, "chart.png")
     const outputPath = path.join(tempDir, "final_output.mp4")
 
+    // 🖼️ Save chart image to temp folder
     const chartData = chartImageBase64.replace(/^data:image\/png;base64,/, "")
     fs.writeFileSync(chartPath, chartData, "base64")
 
-    // Download or decode video
+    // 🎥 Load or download video
     if (type === "base64") {
       const videoData = videoBase64.replace(/^data:video\/mp4;base64,/, "")
       fs.writeFileSync(videoPath, videoData, "base64")
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
     } else if (type === "url") {
       if (!videoUrl) throw new Error("Missing videoUrl for url type")
 
-      // If it's a local /public path, copy directly
+      // ✅ Use local file directly if in public folder
       if (videoUrl.startsWith("/video/")) {
         const publicPath = path.join(process.cwd(), "public", videoUrl)
         fs.copyFileSync(publicPath, videoPath)
@@ -50,12 +51,13 @@ export async function POST(req: Request) {
       }
     }
 
-    // FFmpeg overlay only (no audio mix)
+    // 🎞️ FFmpeg overlay: show chart only between 10s–15s
     await new Promise<void>((resolve, reject) => {
       ffmpeg(videoPath)
         .input(chartPath)
         .complexFilter([
-          "[0:v][1:v]overlay=enable='between(t,0,5)'[v_out]",
+          // Overlay chart only between 10s and 15s
+          "[0:v][1:v]overlay=enable='between(t,10,15)'[v_out]",
         ])
         .outputOptions(["-map [v_out]", "-c:v libx264", "-preset veryfast", "-shortest"])
         .on("start", (cmd) => console.log("🟢 FFmpeg command:", cmd))
@@ -74,7 +76,7 @@ export async function POST(req: Request) {
     const videoBase64Out = videoBufferOut.toString("base64")
 
     return NextResponse.json({
-      message: "✅ Video processed successfully (overlay only)",
+      message: "✅ Video processed successfully (chart shown at 10–15s)",
       video: `data:video/mp4;base64,${videoBase64Out}`,
     })
   } catch (err: any) {

@@ -30,7 +30,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
 
         let processedVideoUrl = ""
 
-        const isProd = process.env.NODE_ENV === "production"
+        const isProd = process.env.NEXT_PUBLIC_NODE_ENV === "production"
         if (isProd) {
           // 🎬 Use HeyGen API logic here (kept same if needed)
           setStatus("🎬 Generating HeyGen avatar video...")
