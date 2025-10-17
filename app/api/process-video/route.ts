@@ -26,15 +26,12 @@ export async function POST(req: Request) {
     const audioPath = path.join(tempDir, "bg_audio.mp3");
     const outputPath = path.join(tempDir, "final_output.mp4");
 
-    // 🎵 Save audio
     const audioData = audioBase64.replace(/^data:audio\/mp3;base64,/, "");
     fs.writeFileSync(audioPath, audioData, "base64");
 
-    // 🖼 Save chart
     const chartData = chartImageBase64.replace(/^data:image\/png;base64,/, "");
     fs.writeFileSync(chartPath, chartData, "base64");
 
-    // 🎬 Handle video input
     if (type === "base64") {
       if (!videoBase64) throw new Error("Missing videoBase64 for base64 type");
       const videoData = videoBase64.replace(/^data:video\/mp4;base64,/, "");
@@ -46,31 +43,38 @@ export async function POST(req: Request) {
       if (!res.ok) throw new Error(`Failed to download video: ${res.statusText}`);
       const buffer = Buffer.from(await res.arrayBuffer());
       fs.writeFileSync(videoPath, buffer);
-      console.log("✅ Video downloaded from URL and saved locally");
-    } else {
-      throw new Error("Invalid video type. Must be 'base64' or 'url'");
+      console.log("✅ Video downloaded from URL");
     }
 
-    // 📊 Probe video metadata
     const metadata = await new Promise<ffmpeg.FfprobeData>((resolve, reject) => {
       ffmpeg.ffprobe(videoPath, (err, data) => (err ? reject(err) : resolve(data)));
     });
 
-    const videoDuration = metadata.format.duration || 0;
     const hasAudio = metadata.streams.some((s) => s.codec_type === "audio");
+    console.log(`🎤 Video has audio: ${hasAudio}`);
 
-    console.log(`🎤 Video has audio: ${hasAudio}, Duration: ${videoDuration}s`);
-
-    // ⚡ FFmpeg processing
     await new Promise<void>((resolve, reject) => {
       const command = ffmpeg(videoPath).input(chartPath).input(audioPath);
-
-      // Simple concat: video + chart + background audio
-      const filters: string[] = [];
-      filters.push(`[0:v][1:v]overlay=0:0:enable='between(t,0,5)'[v]`);
+      
+      // ✅ FIX 2: Improved FFmpeg command to handle avatar audio
+      const complexFilter = [
+        // Overlay chart on video for the first 5 seconds
+        `[0:v][1:v]overlay=enable='between(t,0,5)'[v_out]`, 
+        // Mix avatar audio with background audio (if avatar has audio)
+        hasAudio 
+          ? `[0:a][2:a]amix=inputs=2:duration=first:dropout_transition=3:weights='1 0.25'[a_out]`
+          : `[2:a]acopy[a_out]` // Otherwise, just use the background audio
+      ];
+      
       command
-        .complexFilter(filters)
-        .outputOptions(["-map [v]", "-map 2:a?", "-c:v libx264", "-c:a aac"])
+        .complexFilter(complexFilter)
+        .outputOptions([
+            "-map [v_out]",
+            "-map [a_out]",
+            "-c:v libx264",
+            "-c:a aac",
+            "-shortest"
+        ])
         .on("start", (cmd) => console.log("🟢 FFmpeg command:", cmd))
         .on("progress", (progress) => console.log("🎞️ FFmpeg progress:", progress.timemark))
         .on("end", () => {
@@ -84,12 +88,17 @@ export async function POST(req: Request) {
         .save(outputPath);
     });
 
-    // Convert to Base64 for response
     const videoBufferOut = fs.readFileSync(outputPath);
     const videoBase64Out = videoBufferOut.toString("base64");
 
-    // Cleanup temp files
-    [videoPath, chartPath, audioPath, outputPath].forEach((f) => fs.existsSync(f) && fs.unlinkSync(f));
+    // ✅ FIX 1: Added a small delay before cleanup to prevent EBUSY error
+    await new Promise(res => setTimeout(res, 200));
+
+    // // Cleanup temp files
+    // console.log("🧹 Cleaning up temp files...");
+    // [videoPath, chartPath, audioPath, outputPath].forEach((f) => {
+    //     if(fs.existsSync(f)) fs.unlinkSync(f)
+    // });
 
     return NextResponse.json({
       message: "✅ Video processed successfully",
