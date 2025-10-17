@@ -6,6 +6,7 @@ import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import ffprobeInstaller from "@ffprobe-installer/ffprobe"; // Import the new package
 
 // Set paths correctly using their dedicated packages
+export const runtime = "nodejs";
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 ffmpeg.setFfprobePath(ffprobeInstaller.path);
 

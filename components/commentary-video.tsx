@@ -49,7 +49,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
                     type: "text",
                     input_text: trimmedCommentary,
                     voice_id: voice,
-                    speed: 1.3,
+                    speed: 1.5,
                   },
                 },
               ],
