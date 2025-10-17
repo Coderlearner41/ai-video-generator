@@ -57,16 +57,23 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
             }),
           })
 
-          if (!response.ok) throw new Error("HeyGen API request failed.")
+          if (!response.ok) {
+            alert("❌ HeyGen API request failed.")
+            throw new Error("HeyGen API request failed.")
+          }
+
           const data = await response.json()
           const videoId = data.data?.video_id
-          if (!videoId) throw new Error("No video_id returned from HeyGen.")
+          if (!videoId) {
+            alert("❌ No video_id returned from HeyGen.")
+            throw new Error("No video_id returned from HeyGen.")
+          }
 
           // ⏳ Poll for video readiness
           setStatus("⏳ Waiting for HeyGen video to finish rendering...")
           let ready = false
           while (!ready) {
-            await new Promise((r) => setTimeout(r, 25000)) // wait 25s
+            await new Promise((r) => setTimeout(r, 25000))
             const statusRes = await fetch(`/api/heygen-video?id=${videoId}`)
             const statusData = await statusRes.json()
 
@@ -75,6 +82,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
               heygenUrl = statusData.data.video_url
               setStatus("✅ HeyGen video ready. Starting FFmpeg processing...")
             } else if (statusData.data?.status === "failed") {
+              alert("❌ Video generation failed on HeyGen.")
               throw new Error("Video generation failed on HeyGen.")
             }
           }
@@ -95,9 +103,9 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
           await new Promise((resolve) => setTimeout(resolve, 1500))
         }
         if (!chartImageBase64) {
-          throw new Error("Chart image not found in localStorage after waiting. Please reload the page.")
+          alert("⚠️ Chart image not found. Please reload the page.")
+          throw new Error("Chart image not found in localStorage after waiting.")
         }
-
 
         // 🎵 Send to backend for FFmpeg processing
         setStatus("🎞️ Processing video with background music...")
@@ -107,14 +115,23 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
           body: JSON.stringify({ videoUrl: heygenUrl, chartImageBase64 }),
         })
 
-        if (!processRes.ok) throw new Error("FFmpeg processing failed.")
+        if (!processRes.ok) {
+          alert("❌ FFmpeg processing failed.")
+          throw new Error("FFmpeg processing failed.")
+        }
+
         const processedData = await processRes.json()
-        if (!processedData.video) throw new Error("No processed video returned.")
+        if (!processedData.video) {
+          alert("❌ No processed video returned from server.")
+          throw new Error("No processed video returned.")
+        }
 
         setVideoUrl(processedData.video)
         setStatus("✅ Final video ready!")
+        alert("✅ Video processed successfully!")
       } catch (err: any) {
         console.error("❌ Video processing error:", err)
+        alert(`⚠️ Error: ${err.message || "Unexpected error while processing video."}`)
         setError(err.message || "Unexpected error while processing video.")
         setStatus("⚠️ Something went wrong during processing.")
       } finally {
