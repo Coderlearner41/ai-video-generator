@@ -65,7 +65,7 @@ export async function POST(req: Request) {
     console.log(`🎤 Video has audio: ${hasAudio}, Duration: ${videoDuration}s`);
 
     await new Promise((resolve, reject) => {
-      const breakTime = 10; 
+      const breakTime = isDevelopment? 2 : 10; 
       const chartDuration = 5; 
 
       if (videoDuration < breakTime) {
