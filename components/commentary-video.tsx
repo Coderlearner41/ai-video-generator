@@ -154,7 +154,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         if (!audioRes.ok) throw new Error("Failed to load background audio.")
         const audioBlob = await audioRes.blob()
         try {
-          const audioUpload  = await upload("sample.mp4", audioBlob, {
+          const audioUpload  = await upload("ipl_11.mp3", audioBlob, {
             access: "public",
             handleUploadUrl: "/api/upload",
           })
@@ -163,7 +163,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         } catch (err: any) {
           if (err?.message?.includes("already exists")) {
             console.warn("📦 Sample video already exists.")
-            videoUrlToProcess = `https://YOUR_BLOB_STORE_ID.public.blob.vercel-storage.com/sample.mp4`
+            videoUrlToProcess = `https://YOUR_BLOB_STORE_ID.public.blob.vercel-storage.com/ipl_11.mp3`
           } else throw err
         }
         setStatus("✅ Audio uploaded to Blob.")
