@@ -105,7 +105,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
               throw new Error("Video generation failed on HeyGen.")
             }
           }
-  
+          
           // Upload HeyGen video to blob for consistency
           const videoBlob = await (await fetch(videoUrlToProcess)).blob()
           const videoUpload = await upload("generated.mp4", videoBlob, {
@@ -138,8 +138,9 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         // --- 2️⃣ CHART UPLOAD ---
         setStatus("📊 Uploading chart image...")
         const chartBase64 = localStorage.getItem("chartImage")
+        const uniqueName = `sample_${Date.now()}.png`
         if (!chartBase64) throw new Error("Chart image not found in localStorage.")
-        const chartBlob = base64ToBlob(chartBase64, "image/png")
+        const chartBlob = base64ToBlob(uniqueName, "image/png")
         const chartUpload = await upload("chart.png", chartBlob, {
           access: "public",
           handleUploadUrl: "/api/upload",
@@ -152,10 +153,19 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         const audioRes = await fetch("/song/ipl_11.mp3")
         if (!audioRes.ok) throw new Error("Failed to load background audio.")
         const audioBlob = await audioRes.blob()
-        const audioUpload = await upload("ipl_11.mp3", audioBlob, {
-          access: "public",
-          handleUploadUrl: "/api/upload",
-        })
+        try {
+          const audioUpload  = await upload("sample.mp4", audioBlob, {
+            access: "public",
+            handleUploadUrl: "/api/upload",
+          })
+          videoUrlToProcess = audioUpload.url
+          setStatus("✅ Sample video uploaded to Blob.")
+        } catch (err: any) {
+          if (err?.message?.includes("already exists")) {
+            console.warn("📦 Sample video already exists.")
+            videoUrlToProcess = `https://YOUR_BLOB_STORE_ID.public.blob.vercel-storage.com/sample.mp4`
+          } else throw err
+        }
         audioUrlToProcess = audioUpload.url
         setStatus("✅ Audio uploaded to Blob.")
   
