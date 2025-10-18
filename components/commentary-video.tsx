@@ -140,8 +140,8 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         const chartBase64 = localStorage.getItem("chartImage")
         const uniqueName = `sample_${Date.now()}.png`
         if (!chartBase64) throw new Error("Chart image not found in localStorage.")
-        const chartBlob = base64ToBlob(uniqueName, "image/png")
-        const chartUpload = await upload("chart.png", chartBlob, {
+        const chartBlob = base64ToBlob(chartBase64, "image/png")
+        const chartUpload = await upload(uniqueName, chartBlob, {
           access: "public",
           handleUploadUrl: "/api/upload",
         })

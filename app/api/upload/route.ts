@@ -26,7 +26,7 @@ export async function POST(request: Request): Promise<NextResponse> {
 
       const blob = await put(cleanName, body.file, {
         access: "public",
-        allowOverwrite: true, // ✅ only works server-side
+        allowOverwrite: true, 
       });
 
       return NextResponse.json(blob);
