@@ -4,44 +4,47 @@ import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 
-// 🧩 Only set ffmpeg binary — ffprobe removed
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 export async function POST(req: Request) {
+  let videoUrl = "";
   try {
     console.log("🟢 Received request for video processing");
 
-    const { videoUrl, chartUrl, audioUrl } = await req.json();
+    const body = await req.json();
+    videoUrl = body.videoUrl;
+    const { chartUrl, audioUrl } = body;
 
     if (!videoUrl || !chartUrl || !audioUrl) {
-      return NextResponse.json({ error: "Missing videoUrl, chartUrl, or audioUrl" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing videoUrl, chartUrl, or audioUrl" },
+        { status: 400 }
+      );
     }
 
-    const tempDir = "/tmp"; // ✅ Vercel’s writable temp directory
+    const tempDir = "/tmp"; // ✅ Writable on Vercel
     const videoPath = path.join(tempDir, "input.mp4");
     const chartPath = path.join(tempDir, "chart.png");
     const audioPath = path.join(tempDir, "bg_audio.mp3");
     const outputPath = path.join(tempDir, "final_output.mp4");
 
-    // ⬇️ Download video
+    // --- Download Inputs ---
     console.log("⬇️ Downloading video:", videoUrl);
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.statusText}`);
     fs.writeFileSync(videoPath, Buffer.from(await videoRes.arrayBuffer()));
 
-    // 🖼️ Download chart
     console.log("🖼️ Downloading chart:", chartUrl);
     const chartRes = await fetch(chartUrl);
     if (!chartRes.ok) throw new Error(`Failed to download chart: ${chartRes.statusText}`);
     fs.writeFileSync(chartPath, Buffer.from(await chartRes.arrayBuffer()));
 
-    // 🎵 Download audio
     console.log("🎵 Downloading audio:", audioUrl);
     const audioRes = await fetch(audioUrl);
     if (!audioRes.ok) throw new Error(`Failed to download audio: ${audioRes.statusText}`);
     fs.writeFileSync(audioPath, Buffer.from(await audioRes.arrayBuffer()));
 
-    // 🎬 Process video
+    // --- FFmpeg Processing ---
     await new Promise<void>((resolve, reject) => {
       ffmpeg(videoPath)
         .input(chartPath)
@@ -73,7 +76,7 @@ export async function POST(req: Request) {
     const videoBufferOut = fs.readFileSync(outputPath);
     const videoBase64Out = videoBufferOut.toString("base64");
 
-    // 🧹 Cleanup
+    // --- Cleanup ---
     await new Promise((res) => setTimeout(res, 200));
     [videoPath, chartPath, audioPath, outputPath].forEach((f) => {
       if (fs.existsSync(f)) fs.unlinkSync(f);
@@ -83,8 +86,16 @@ export async function POST(req: Request) {
       message: "✅ Video processed successfully",
       video: `data:video/mp4;base64,${videoBase64Out}`,
     });
+
   } catch (err: any) {
-    console.error("❌ API error:", err.message);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("❌ Processing failed:", err.message);
+
+    // ⚙️ Fallback: Return the original video URL instead of error
+    return NextResponse.json({
+      message: "⚠️ FFmpeg failed — returning original video",
+      fallback: true,
+      video: videoUrl,
+      error: err.message,
+    });
   }
 }
