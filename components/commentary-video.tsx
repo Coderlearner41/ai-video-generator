@@ -33,13 +33,22 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         setError("")
         setVideoUrl("")
     
-        const isProd = process.env.NODE_ENV === "production"
+        const isProd = process.env.NEXT_PUBLIC_NODE_ENV === "production"
         let videoUrlToProcess = ""; // This will hold the URL we send to the server
         
         if (isProd) {
           // --- PRODUCTION: GET HEYGEN URL ---
           setStatus("🎬 Generating HeyGen avatar video...")
-          const response = await fetch("/api/heygen-video", { /* ... */ })
+          const response = await fetch("/api/heygen-video", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              avatar,
+              voice,
+              text: trimmedCommentary,
+            }),
+          })
+          
           if (!response.ok) throw new Error("HeyGen API request failed.")
           const data = await response.json()
           const videoId = data.data?.video_id
