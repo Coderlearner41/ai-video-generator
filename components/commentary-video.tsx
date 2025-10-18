@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 
 interface CommentaryVideoProps {
   avatar: string
@@ -22,7 +23,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
   const trimmedCommentary = safeCommentary.split(" ").slice(0, MAX_WORDS).join(" ")
 
   useEffect(() => {
-    async function generateAndProcessVideo() {
+    async function generateVideo() {
       if (hasStartedGeneration.current || !commentary || commentary.length < 20) return
       hasStartedGeneration.current = true
 
@@ -33,13 +34,9 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         setStatus("🚀 Starting video generation...")
 
         const isProd = process.env.NODE_ENV === "production"
-        console.log("isProd:", isProd)
-
         let heygenVideoUrl = ""
-        let chartBase64 = ""
-        let audioBase64 = ""
 
-        // ✅ 1️⃣ Generate or get HeyGen video
+        // ✅ Generate or get HeyGen video
         const heygenBody = {
           video_inputs: [
             {
@@ -64,7 +61,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
           const videoId = data.data?.video_id
           if (!videoId) throw new Error("No video_id from HeyGen.")
 
-          // Poll HeyGen until ready
+          // Poll until HeyGen video ready
           let ready = false
           while (!ready) {
             await new Promise((r) => setTimeout(r, 25000))
@@ -78,50 +75,14 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
             }
           }
         } else {
-          // Dev fallback
           heygenVideoUrl = "/video/sample.mp4"
           setStatus("🧩 Using sample video in dev mode...")
         }
 
-        // ✅ 2️⃣ Get chart base64 (already in localStorage)
-        setStatus("📊 Preparing chart image...")
-        const chartFromStorage = localStorage.getItem("chartImage")
-        if (!chartFromStorage) throw new Error("Chart image not found in localStorage.")
-        chartBase64 = chartFromStorage
-
-        // ✅ 3️⃣ Convert audio to base64
-        setStatus("🎵 Loading audio...")
-        const audioRes = await fetch("/song/ipl_11.mp3")
-        const audioArrayBuffer = await audioRes.arrayBuffer()
-        const audioBase64Str = Buffer.from(audioArrayBuffer).toString("base64")
-        audioBase64 = `data:audio/mpeg;base64,${audioBase64Str}`
-
-        // ✅ 4️⃣ Process via /api/process-video
-        setStatus("🎞️ Sending data to process-video API...")
-        const processRes = await fetch("/api/process-video", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            videoUrl: heygenVideoUrl,
-            chartBase64,
-            audioBase64,
-          }),
-        })
-
-        if (processRes.ok) {
-          const processed = await processRes.json()
-          if (processed?.video) {
-            setVideoUrl(processed.video)
-            setStatus("✅ Final processed video ready!")
-            return
-          }
-        }
-
-        // ✅ 5️⃣ Fallback: use HeyGen video only
-        setStatus("⚠️ FFmpeg failed or not available, showing HeyGen video only.")
         setVideoUrl(heygenVideoUrl)
+        setStatus("✅ Video ready!")
       } catch (err: any) {
-        console.error("❌ Video processing error:", err)
+        console.error("❌ Video generation error:", err)
         setError(err.message || "Unexpected error.")
         setStatus("⚠️ Something went wrong.")
       } finally {
@@ -129,7 +90,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
       }
     }
 
-    generateAndProcessVideo()
+    generateVideo()
 
     return () => {
       hasStartedGeneration.current = false
@@ -142,9 +103,24 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
       {status && <p className="text-sm text-gray-300">{status}</p>}
       {loading && <p className="text-orange-400 animate-pulse">Please wait...</p>}
       {error && <p className="text-red-400 font-semibold">{error}</p>}
+
       {!loading && videoUrl && (
-        <video key={videoUrl} src={videoUrl} controls autoPlay className="w-full rounded-lg" />
+        <>
+          <video key={videoUrl} src={videoUrl} controls autoPlay className="w-full rounded-lg" />
+          <Button
+            className="mt-2"
+            onClick={() => {
+              const a = document.createElement("a")
+              a.href = videoUrl
+              a.download = "commentary.mp4"
+              a.click()
+            }}
+          >
+            ⬇️ Download Video
+          </Button>
+        </>
       )}
+
       {!loading && !videoUrl && !error && (
         <p className="text-gray-400 italic">AI video will appear here once generated.</p>
       )}
