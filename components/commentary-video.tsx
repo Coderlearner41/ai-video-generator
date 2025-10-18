@@ -2,6 +2,10 @@
 
 import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
+import * as ffmpeg from "@ffmpeg/ffmpeg"
+
+
+const { createFFmpeg, fetchFile } = ffmpeg as any
 
 interface CommentaryVideoProps {
   avatar: string
@@ -14,6 +18,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>("")
   const [status, setStatus] = useState<string>("")
+  const ffmpeg = createFFmpeg({ log: true })
   const MAX_WORDS = 90
   const trimmedCommentary = commentary.split(" ").slice(0, MAX_WORDS).join(" ")
 
@@ -26,14 +31,13 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         setVideoUrl("")
 
         const isProd = process.env.NEXT_PUBLIC_NODE_ENV === "production"
-        let heygenUrl = ""
+        let baseVideoUrl = ""
 
+        // =================================
+        // 🧠 1️⃣ Get Base Video
+        // =================================
         if (isProd) {
-          // ==============================
-          // 🧠 HeyGen Generation (Production Mode)
-          // ==============================
           setStatus("🎬 Generating HeyGen avatar video...")
-
           const response = await fetch("/api/heygen-video", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -62,61 +66,73 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
           const videoId = data.data?.video_id
           if (!videoId) throw new Error("No video_id returned from HeyGen.")
 
-          // ⏳ Poll for video readiness
-          setStatus("⏳ Waiting for HeyGen video to finish rendering...")
+          // ⏳ Poll until video is ready
+          setStatus("⏳ Waiting for HeyGen video rendering...")
           let ready = false
           while (!ready) {
-            await new Promise((r) => setTimeout(r, 25000)) // wait 25s
+            await new Promise((r) => setTimeout(r, 25000))
             const statusRes = await fetch(`/api/heygen-video?id=${videoId}`)
             const statusData = await statusRes.json()
-
             if (statusData.data?.video_url) {
+              baseVideoUrl = statusData.data.video_url
               ready = true
-              heygenUrl = statusData.data.video_url
-              setStatus("✅ HeyGen video ready. Starting FFmpeg processing...")
             } else if (statusData.data?.status === "failed") {
               throw new Error("Video generation failed on HeyGen.")
             }
           }
         } else {
-          // ==============================
-          // 🧪 Development Mode — Use Sample Video
-          // ==============================
-          heygenUrl = "/video/sample.mp4"
-          setStatus("🧩 Using sample video from /public/video/sample.mp4 (development mode)")
+          baseVideoUrl = "/video/sample.mp4"
+          setStatus("🧩 Using sample video from /public/video/sample.mp4")
         }
 
-        // 🎨 Get chart image
-        let chartImageBase64 = null
+        // =================================
+        // 🧠 2️⃣ Get Chart Image
+        // =================================
+        setStatus("📊 Getting chart image...")
+        let chartImageBase64: string | null = null
         for (let attempt = 0; attempt < 5; attempt++) {
           chartImageBase64 = localStorage.getItem("chartImage")
           if (chartImageBase64) break
-          console.log("⏳ Waiting for chart image to be ready...")
+          console.log("⏳ Waiting for chart image...")
           await new Promise((resolve) => setTimeout(resolve, 1500))
         }
         if (!chartImageBase64) {
-          throw new Error("Chart image not found in localStorage after waiting. Please reload the page.")
+          throw new Error("Chart image not found in localStorage.")
         }
 
+        // =================================
+        // 🧠 3️⃣ Run FFmpeg in Browser (WASM)
+        // =================================
+        setStatus("🎞️ Processing video in browser with FFmpeg (WASM)...")
 
-        // 🎵 Send to backend for FFmpeg processing
-        setStatus("🎞️ Processing video with background music...")
-        const processRes = await fetch("/api/process-video", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ videoUrl: heygenUrl, chartImageBase64 }),
-        })
+        if (!ffmpeg.isLoaded()) await ffmpeg.load()
 
-        if (!processRes.ok) throw new Error("FFmpeg processing failed.")
-        const processedData = await processRes.json()
-        if (!processedData.video) throw new Error("No processed video returned.")
+        const videoFile = await fetchFile(baseVideoUrl)
+        const overlayBlob = await fetchFile(chartImageBase64)
 
-        setVideoUrl(processedData.video)
+        ffmpeg.FS("writeFile", "input.mp4", videoFile)
+        ffmpeg.FS("writeFile", "overlay.png", overlayBlob)
+
+        await ffmpeg.run(
+          "-i", "input.mp4",
+          "-i", "overlay.png",
+          "-filter_complex", "[0:v][1:v]overlay=enable='between(t,10,15)'[v]",
+          "-map", "[v]",
+          "-c:v", "libx264",
+          "-preset", "veryfast",
+          "output.mp4"
+        )
+
+        const data = ffmpeg.FS("readFile", "output.mp4")
+        const videoBlob = new Blob([data.buffer], { type: "video/mp4" })
+        const outputUrl = URL.createObjectURL(videoBlob)
+
+        setVideoUrl(outputUrl)
         setStatus("✅ Final video ready!")
       } catch (err: any) {
-        console.error("❌ Video processing error:", err)
-        setError(err.message || "Unexpected error while processing video.")
-        setStatus("⚠️ Something went wrong during processing.")
+        console.error("❌ FFmpeg WASM error:", err)
+        setError(err.message || "Video processing failed.")
+        setStatus("⚠️ Something went wrong.")
       } finally {
         setLoading(false)
       }
@@ -128,11 +144,9 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
   return (
     <Card className="bg-slate-800 border-orange-500/30 p-6 space-y-4">
       <h3 className="text-orange-400 font-bold mb-2">🎥 AI Video Commentary</h3>
-
       {status && <p className="text-sm text-gray-300">{status}</p>}
-      {loading && <p className="text-orange-400 animate-pulse">Please wait, this may take a while...</p>}
+      {loading && <p className="text-orange-400 animate-pulse">Processing... please wait.</p>}
       {error && <p className="text-red-400">{error}</p>}
-
       {!loading && videoUrl && (
         <video
           key={videoUrl}
@@ -142,7 +156,6 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
           className="w-full rounded-lg border border-orange-400/30 shadow-lg"
         />
       )}
-
       {!loading && !videoUrl && !error && (
         <p className="text-gray-400 italic">AI video will appear here once generated.</p>
       )}

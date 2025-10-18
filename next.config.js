@@ -1,11 +1,11 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-    // No more 'experimental' block for this setting
-    serverExternalPackages: [
-      "@ffmpeg-installer/ffmpeg",
-      "@ffprobe-installer/ffprobe",
-      "fluent-ffmpeg",
-    ],
-  };
-  
-  module.exports = nextConfig;
+  reactStrictMode: true,
+  webpack: (config) => {
+    // Allow .wasm imports
+    config.experiments = { asyncWebAssembly: true, layers: true };
+    return config;
+  },
+};
+
+module.exports = nextConfig;
