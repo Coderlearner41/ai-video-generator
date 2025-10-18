@@ -1,101 +1,98 @@
-import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import ffmpeg from "fluent-ffmpeg";
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import { NextResponse } from "next/server"
+import fs from "fs"
+import path from "path"
+import ffmpeg from "fluent-ffmpeg"
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg"
+import ffprobeInstaller from "@ffprobe-installer/ffprobe"
+import { put } from "@vercel/blob"
 
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+ffmpeg.setFfmpegPath(ffmpegInstaller.path)
+ffmpeg.setFfprobePath(ffprobeInstaller.path)
 
 export async function POST(req: Request) {
-  let videoUrl = "";
   try {
-    console.log("🟢 Received request for video processing");
+    const { videoUrl, chartBase64, audioBase64 } = await req.json()
 
-    const body = await req.json();
-    videoUrl = body.videoUrl;
-    const { chartUrl, audioUrl } = body;
-
-    if (!videoUrl || !chartUrl || !audioUrl) {
-      return NextResponse.json(
-        { error: "Missing videoUrl, chartUrl, or audioUrl" },
-        { status: 400 }
-      );
+    if (!videoUrl) {
+      return NextResponse.json({ error: "Missing videoUrl" }, { status: 400 })
     }
 
-    const tempDir = "/tmp"; // ✅ Writable on Vercel
-    const videoPath = path.join(tempDir, "input.mp4");
-    const chartPath = path.join(tempDir, "chart.png");
-    const audioPath = path.join(tempDir, "bg_audio.mp3");
-    const outputPath = path.join(tempDir, "final_output.mp4");
+    // 🧩 Create a temporary working directory
+    const tempDir = path.join("/tmp", `process_${Date.now()}`)
+    fs.mkdirSync(tempDir, { recursive: true })
 
-    // --- Download Inputs ---
-    console.log("⬇️ Downloading video:", videoUrl);
-    const videoRes = await fetch(videoUrl);
-    if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.statusText}`);
-    fs.writeFileSync(videoPath, Buffer.from(await videoRes.arrayBuffer()));
+    const inputVideoPath = path.join(tempDir, "input.mp4")
+    const chartPath = path.join(tempDir, "chart.png")
+    const audioPath = path.join(tempDir, "audio.mp3")
+    const outputPath = path.join(tempDir, "output.mp4")
 
-    console.log("🖼️ Downloading chart:", chartUrl);
-    const chartRes = await fetch(chartUrl);
-    if (!chartRes.ok) throw new Error(`Failed to download chart: ${chartRes.statusText}`);
-    fs.writeFileSync(chartPath, Buffer.from(await chartRes.arrayBuffer()));
+    // --- 1️⃣ Download the video file
+    const videoRes = await fetch(videoUrl)
+    const videoBuffer = Buffer.from(await videoRes.arrayBuffer())
+    fs.writeFileSync(inputVideoPath, videoBuffer)
 
-    console.log("🎵 Downloading audio:", audioUrl);
-    const audioRes = await fetch(audioUrl);
-    if (!audioRes.ok) throw new Error(`Failed to download audio: ${audioRes.statusText}`);
-    fs.writeFileSync(audioPath, Buffer.from(await audioRes.arrayBuffer()));
+    // --- 2️⃣ Decode and write chart image
+    if (chartBase64?.startsWith("data:image")) {
+      const chartData = chartBase64.split(",")[1]
+      fs.writeFileSync(chartPath, Buffer.from(chartData, "base64"))
+    }
 
-    // --- FFmpeg Processing ---
+    // --- 3️⃣ Decode and write audio file
+    if (audioBase64?.startsWith("data:audio")) {
+      const audioData = audioBase64.split(",")[1]
+      fs.writeFileSync(audioPath, Buffer.from(audioData, "base64"))
+    }
+
+    // --- 4️⃣ FFmpeg command
     await new Promise<void>((resolve, reject) => {
-      ffmpeg(videoPath)
-        .input(chartPath)
-        .input(audioPath)
-        .complexFilter([
-          `[0:v][1:v]overlay=enable='between(t,0,5)'[v_out]`,
-          `[2:a]acopy[a_out]`,
-        ])
-        .outputOptions([
-          "-map [v_out]",
-          "-map [a_out]",
-          "-c:v libx264",
-          "-c:a aac",
-          "-shortest",
-        ])
-        .on("start", (cmd) => console.log("🟢 FFmpeg command:", cmd))
-        .on("progress", (progress) => console.log("🎞️ Progress:", progress.timemark))
-        .on("end", () => {
-          console.log("✅ FFmpeg processing completed");
-          resolve();
-        })
+      const cmd = ffmpeg(inputVideoPath)
+        .inputOptions(["-y"])
+        .on("start", (cmd) => console.log("🎞️ FFmpeg started:", cmd))
         .on("error", (err) => {
-          console.error("❌ FFmpeg error:", err.message);
-          reject(err);
+          console.error("❌ FFmpeg error:", err)
+          reject(err)
         })
-        .save(outputPath);
-    });
+        .on("end", () => {
+          console.log("✅ FFmpeg finished successfully")
+          resolve()
+        })
 
-    const videoBufferOut = fs.readFileSync(outputPath);
-    const videoBase64Out = videoBufferOut.toString("base64");
+      // Overlay chart if present
+      if (fs.existsSync(chartPath)) {
+        cmd.input(chartPath).complexFilter([
+          "[0:v][1:v] overlay=W-w-20:H-h-20:enable='between(t,1,15)'",
+        ])
+      }
 
-    // --- Cleanup ---
-    await new Promise((res) => setTimeout(res, 200));
-    [videoPath, chartPath, audioPath, outputPath].forEach((f) => {
-      if (fs.existsSync(f)) fs.unlinkSync(f);
-    });
+      // Mix audio if available
+      if (fs.existsSync(audioPath)) {
+        cmd.input(audioPath).audioCodec("aac").videoCodec("libx264").outputOptions([
+          "-shortest",
+          "-map 0:v",
+          "-map 1:a?",
+        ])
+      }
 
+      cmd.output(outputPath).run()
+    })
+
+    // --- 5️⃣ Upload processed file to Vercel Blob
+    const finalVideo = fs.readFileSync(outputPath)
+    const blob = await put(`processed_${Date.now()}.mp4`, finalVideo, {
+      access: "public",
+      addRandomSuffix: false,
+    })
+
+    // --- 🧹 Cleanup
+    fs.rmSync(tempDir, { recursive: true, force: true })
+
+    return NextResponse.json({ video: blob.url })
+  } catch (error: any) {
+    console.error("❌ process-video failed:", error)
+    // Return fallback (HeyGen video only)
     return NextResponse.json({
-      message: "✅ Video processed successfully",
-      video: `data:video/mp4;base64,${videoBase64Out}`,
-    });
-
-  } catch (err: any) {
-    console.error("❌ Processing failed:", err.message);
-
-    // ⚙️ Fallback: Return the original video URL instead of error
-    return NextResponse.json({
-      message: "⚠️ FFmpeg failed — returning original video",
-      fallback: true,
-      video: videoUrl,
-      error: err.message,
-    });
+      video: error.videoUrl || null,
+      error: "Processing failed, returning fallback video.",
+    })
   }
 }
