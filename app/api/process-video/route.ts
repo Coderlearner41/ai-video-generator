@@ -3,10 +3,9 @@ import fs from "fs";
 import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import ffprobeInstaller from "@ffprobe-installer/ffprobe";
 
+// 🧩 Only set ffmpeg binary — ffprobe removed
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
-ffmpeg.setFfprobePath(ffprobeInstaller.path);
 
 export async function POST(req: Request) {
   try {
@@ -18,59 +17,46 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing videoUrl, chartUrl, or audioUrl" }, { status: 400 });
     }
 
-    // --- Detect whether it’s a Heygen video or Blob asset ---
-    const isHeygenVideo = videoUrl.includes("heygen.com");
-    console.log("📦 Video source:", isHeygenVideo ? "Heygen CDN" : "Vercel Blob");
-
-    // --- Use Vercel temp directory ---
-    const tempDir = "/tmp";
+    const tempDir = "/tmp"; // ✅ Vercel’s writable temp directory
     const videoPath = path.join(tempDir, "input.mp4");
     const chartPath = path.join(tempDir, "chart.png");
     const audioPath = path.join(tempDir, "bg_audio.mp3");
     const outputPath = path.join(tempDir, "final_output.mp4");
 
-    // --- Download video from URL (works for both Blob or Heygen) ---
+    // ⬇️ Download video
     console.log("⬇️ Downloading video:", videoUrl);
     const videoRes = await fetch(videoUrl);
     if (!videoRes.ok) throw new Error(`Failed to download video: ${videoRes.statusText}`);
-    const videoBuffer = Buffer.from(await videoRes.arrayBuffer());
-    fs.writeFileSync(videoPath, videoBuffer);
+    fs.writeFileSync(videoPath, Buffer.from(await videoRes.arrayBuffer()));
 
-    // --- Download chart image ---
+    // 🖼️ Download chart
     console.log("🖼️ Downloading chart:", chartUrl);
     const chartRes = await fetch(chartUrl);
     if (!chartRes.ok) throw new Error(`Failed to download chart: ${chartRes.statusText}`);
-    const chartBuffer = Buffer.from(await chartRes.arrayBuffer());
-    fs.writeFileSync(chartPath, chartBuffer);
+    fs.writeFileSync(chartPath, Buffer.from(await chartRes.arrayBuffer()));
 
-    // --- Download audio ---
+    // 🎵 Download audio
     console.log("🎵 Downloading audio:", audioUrl);
     const audioRes = await fetch(audioUrl);
     if (!audioRes.ok) throw new Error(`Failed to download audio: ${audioRes.statusText}`);
-    const audioBuffer = Buffer.from(await audioRes.arrayBuffer());
-    fs.writeFileSync(audioPath, audioBuffer);
+    fs.writeFileSync(audioPath, Buffer.from(await audioRes.arrayBuffer()));
 
-    // --- Probe metadata to detect existing audio ---
-    const metadata = await new Promise<ffmpeg.FfprobeData>((resolve, reject) => {
-      ffmpeg.ffprobe(videoPath, (err, data) => (err ? reject(err) : resolve(data)));
-    });
-    const hasAudio = metadata.streams.some((s) => s.codec_type === "audio");
-    console.log(`🎤 Video has audio: ${hasAudio}`);
-
-    // --- FFmpeg Processing ---
+    // 🎬 Process video
     await new Promise<void>((resolve, reject) => {
-      const command = ffmpeg(videoPath).input(chartPath).input(audioPath);
-
-      const complexFilter = [
-        `[0:v][1:v]overlay=enable='between(t,0,5)'[v_out]`,
-        hasAudio
-          ? `[0:a][2:a]amix=inputs=2:duration=first:dropout_transition=3:weights='1 0.25'[a_out]`
-          : `[2:a]acopy[a_out]`,
-      ];
-
-      command
-        .complexFilter(complexFilter)
-        .outputOptions(["-map [v_out]", "-map [a_out]", "-c:v libx264", "-c:a aac", "-shortest"])
+      ffmpeg(videoPath)
+        .input(chartPath)
+        .input(audioPath)
+        .complexFilter([
+          `[0:v][1:v]overlay=enable='between(t,0,5)'[v_out]`,
+          `[2:a]acopy[a_out]`,
+        ])
+        .outputOptions([
+          "-map [v_out]",
+          "-map [a_out]",
+          "-c:v libx264",
+          "-c:a aac",
+          "-shortest",
+        ])
         .on("start", (cmd) => console.log("🟢 FFmpeg command:", cmd))
         .on("progress", (progress) => console.log("🎞️ Progress:", progress.timemark))
         .on("end", () => {
@@ -84,11 +70,10 @@ export async function POST(req: Request) {
         .save(outputPath);
     });
 
-    // --- Convert to base64 ---
     const videoBufferOut = fs.readFileSync(outputPath);
     const videoBase64Out = videoBufferOut.toString("base64");
 
-    // --- Cleanup ---
+    // 🧹 Cleanup
     await new Promise((res) => setTimeout(res, 200));
     [videoPath, chartPath, audioPath, outputPath].forEach((f) => {
       if (fs.existsSync(f)) fs.unlinkSync(f);
