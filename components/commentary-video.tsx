@@ -100,6 +100,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
           const blob = await upload("sample.mp4", videoFile, {
             access: "public",
             handleUploadUrl: "/api/upload", // your API route that returns signed URL
+            allowOverwrite: true,
           })
 
           videoUrlToProcess = blob.url
