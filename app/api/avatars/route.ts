@@ -37,7 +37,7 @@ export async function GET() {
         premium: a.premium,
       }))
       
-    console.log(`✅ Returning ${avatars.length} avatars.`)
+    console.log(`✅ Returning ${avatars.length} avatars, which are ${JSON.stringify(avatars)}`)
     return NextResponse.json({ avatars })
   } catch (err) {
     console.error("❌ Error fetching avatars:", err)

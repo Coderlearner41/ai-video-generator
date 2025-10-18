@@ -2,10 +2,10 @@ import { NextResponse } from "next/server"
 
 export async function POST(req: Request) {
   try {
-    console.log(req)
+    // console.log(req)
     const body = await req.json()
-    console.log(body)
-    const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY // ✅ Use server-side env var
+    console.log("📦 Sending body:", JSON.stringify(body, null, 2))
+    const HEYGEN_API_KEY = process.env.NEXT_PUBLIC_HEYGEN_KEY // ✅ Use server-side env var
 
     if (!HEYGEN_API_KEY) {
       return NextResponse.json({ error: "Missing HeyGen API key" }, { status: 400 })
@@ -21,6 +21,7 @@ export async function POST(req: Request) {
       },
       body: JSON.stringify(body),
     })
+    console.log(res)
 
     const text = await res.text()
     console.log("🎥 HeyGen generate response:", text)
@@ -28,7 +29,8 @@ export async function POST(req: Request) {
     if (!res.ok) {
       return NextResponse.json(
         { error: "HeyGen generate failed", details: text },
-        { status: res.status }
+        { status: res.status },
+
       )
     }
 
@@ -47,7 +49,7 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url)
     const videoId = searchParams.get("id")
-    const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY
+    const HEYGEN_API_KEY = process.env.NEXT_PUBLIC_HEYGEN_KEY
 
     if (!videoId) {
       return NextResponse.json({ error: "Missing video ID" }, { status: 400 })

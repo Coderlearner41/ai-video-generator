@@ -20,7 +20,11 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
   const hasStartedGeneration = useRef(false)
 
   const MAX_WORDS = 90
-  const trimmedCommentary = commentary.split(" ").slice(0, MAX_WORDS).join(" ")
+  const safeCommentary =
+  typeof commentary === "string"
+    ? commentary.replace(/^"|"$/g, "") // remove wrapping quotes if any
+    : "";
+  const trimmedCommentary = safeCommentary.split(" ").slice(0, MAX_WORDS).join(" ")
 
   useEffect(() => {
     async function generateAndProcessVideo() {
@@ -35,6 +39,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         setStatus("🚀 Starting video generation...")
 
         const isProd = process.env.NEXT_PUBLIC_NODE_ENV === "production"
+        console.log("isProd:", isProd)
         let videoUrlToProcess = ""
 
         // ✅ Prepare HeyGen video generation request
