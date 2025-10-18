@@ -163,7 +163,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         } catch (err: any) {
           if (err?.message?.includes("already exists")) {
             console.warn("📦 Sample video already exists.")
-            videoUrlToProcess = `https://YOUR_BLOB_STORE_ID.public.blob.vercel-storage.com/ipl_11.mp3`
+            audioUrlToProcess = `https://YOUR_BLOB_STORE_ID.public.blob.vercel-storage.com/ipl_11.mp3`
           } else throw err
         }
         setStatus("✅ Audio uploaded to Blob.")
