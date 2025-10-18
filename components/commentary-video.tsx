@@ -158,7 +158,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
             access: "public",
             handleUploadUrl: "/api/upload",
           })
-          videoUrlToProcess = audioUpload.url
+          audioUrlToProcess = audioUpload.url
           setStatus("✅ Sample video uploaded to Blob.")
         } catch (err: any) {
           if (err?.message?.includes("already exists")) {
@@ -166,7 +166,6 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
             videoUrlToProcess = `https://YOUR_BLOB_STORE_ID.public.blob.vercel-storage.com/sample.mp4`
           } else throw err
         }
-        audioUrlToProcess = audioUpload.url
         setStatus("✅ Audio uploaded to Blob.")
   
         // --- 4️⃣ PROCESSING (server-side FFmpeg) ---
