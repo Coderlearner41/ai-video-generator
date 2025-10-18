@@ -34,7 +34,6 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    console.log("hehe")
     const { searchParams } = new URL(req.url)
     const videoId = searchParams.get("id")
     const HEYGEN_API_KEY = process.env.NEXT_PUBLIC_HEYGEN_KEY

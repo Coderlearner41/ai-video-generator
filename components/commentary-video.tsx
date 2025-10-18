@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Card } from "@/components/ui/card"
 
 interface CommentaryVideoProps {
@@ -15,64 +15,115 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
   const [error, setError] = useState<string>("")
   const [status, setStatus] = useState<string>("")
   const MAX_WORDS = 90
-  const hasStartedGeneration = useRef(false)
   const trimmedCommentary = commentary.split(" ").slice(0, MAX_WORDS).join(" ")
 
   useEffect(() => {
     async function generateAndProcessVideo() {
-      if (hasStartedGeneration.current || !commentary || commentary.length < 20) return
-      hasStartedGeneration.current = true
-
+      if (!commentary || commentary.length < 20) return
       try {
         setLoading(true)
         setError("")
         setVideoUrl("")
 
-        let processedVideoUrl = ""
-
         const isProd = process.env.NEXT_PUBLIC_NODE_ENV === "production"
+        let heygenUrl = ""
+
         if (isProd) {
-          // 🎬 Use HeyGen API logic here (kept same if needed)
+          // ==============================
+          // 🧠 HeyGen Generation (Production Mode)
+          // ==============================
           setStatus("🎬 Generating HeyGen avatar video...")
-          // processedVideoUrl = heygenUrl
+
+          const response = await fetch("/api/heygen-video", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              video_inputs: [
+                {
+                  character: {
+                    type: "avatar",
+                    avatar_id: avatar,
+                    avatar_style: "normal",
+                  },
+                  voice: {
+                    type: "text",
+                    input_text: trimmedCommentary,
+                    voice_id: voice,
+                    speed: 1.3,
+                  },
+                },
+              ],
+              dimension: { width: 1280, height: 720 },
+            }),
+          })
+
+          if (!response.ok) throw new Error("HeyGen API request failed.")
+          const data = await response.json()
+          const videoId = data.data?.video_id
+          if (!videoId) throw new Error("No video_id returned from HeyGen.")
+
+          // ⏳ Poll for video readiness
+          setStatus("⏳ Waiting for HeyGen video to finish rendering...")
+          let ready = false
+          while (!ready) {
+            await new Promise((r) => setTimeout(r, 25000)) // wait 25s
+            const statusRes = await fetch(`/api/heygen-video?id=${videoId}`)
+            const statusData = await statusRes.json()
+
+            if (statusData.data?.video_url) {
+              ready = true
+              heygenUrl = statusData.data.video_url
+              setStatus("✅ HeyGen video ready. Starting FFmpeg processing...")
+            } else if (statusData.data?.status === "failed") {
+              throw new Error("Video generation failed on HeyGen.")
+            }
+          }
         } else {
-          // 🧩 Development mode — use local sample
-          setStatus("📼 Using local sample video...")
-          processedVideoUrl = "/video/sample.mp4"
+          // ==============================
+          // 🧪 Development Mode — Use Sample Video
+          // ==============================
+          heygenUrl = "/video/sample.mp4"
+          setStatus("🧩 Using sample video from /public/video/sample.mp4 (development mode)")
         }
 
-        const chartImageBase64 = localStorage.getItem("chartImage")
-        if (!chartImageBase64) throw new Error("Chart image not found.")
+        // 🎨 Get chart image
+        let chartImageBase64 = null
+        for (let attempt = 0; attempt < 5; attempt++) {
+          chartImageBase64 = localStorage.getItem("chartImage")
+          if (chartImageBase64) break
+          console.log("⏳ Waiting for chart image to be ready...")
+          await new Promise((resolve) => setTimeout(resolve, 1500))
+        }
+        if (!chartImageBase64) {
+          throw new Error("Chart image not found in localStorage after waiting. Please reload the page.")
+        }
 
-        setStatus("🎞️ Processing video (overlay only)...")
+
+        // 🎵 Send to backend for FFmpeg processing
+        setStatus("🎞️ Processing video with background music...")
         const processRes = await fetch("/api/process-video", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "url",
-            videoUrl: processedVideoUrl,
-            chartImageBase64,
-          }),
+          body: JSON.stringify({ videoUrl: heygenUrl, chartImageBase64 }),
         })
 
-        if (!processRes.ok) {
-          const errData = await processRes.json()
-          throw new Error(errData.error || "FFmpeg processing failed.")
-        }
-
+        if (!processRes.ok) throw new Error("FFmpeg processing failed.")
         const processedData = await processRes.json()
+        if (!processedData.video) throw new Error("No processed video returned.")
+
         setVideoUrl(processedData.video)
         setStatus("✅ Final video ready!")
       } catch (err: any) {
-        console.error(err)
-        setError(err.message || "Unknown error")
-        setStatus("❌ Failed to generate video.")
+        console.error("❌ Video processing error:", err)
+        setError(err.message || "Unexpected error while processing video.")
+        setStatus("⚠️ Something went wrong during processing.")
       } finally {
         setLoading(false)
       }
     }
+
     generateAndProcessVideo()
-  }, [avatar, voice, commentary, trimmedCommentary])
+  }, [avatar, voice, commentary])
 
   return (
     <Card className="bg-slate-800 border-orange-500/30 p-6 space-y-4">
