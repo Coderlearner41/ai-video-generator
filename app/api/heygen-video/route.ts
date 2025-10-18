@@ -2,7 +2,9 @@ import { NextResponse } from "next/server"
 
 export async function POST(req: Request) {
   try {
+    console.log(req)
     const body = await req.json()
+    console.log(body)
     const HEYGEN_API_KEY = process.env.HEYGEN_API_KEY // ✅ Use server-side env var
 
     if (!HEYGEN_API_KEY) {
@@ -14,7 +16,7 @@ export async function POST(req: Request) {
     const res = await fetch("https://api.heygen.com/v2/video/generate", {
       method: "POST",
       headers: {
-        "x-api-key": HEYGEN_API_KEY, // ✅ Lowercase is required by HeyGen API
+        "X-Api-key": HEYGEN_API_KEY,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -62,7 +64,7 @@ export async function GET(req: Request) {
         method: "GET",
         headers: {
           accept: "application/json",
-          "x-api-key": HEYGEN_API_KEY,
+          "X-Api-key": HEYGEN_API_KEY,
         },
       }
     )

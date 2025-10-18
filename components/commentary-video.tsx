@@ -63,12 +63,13 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         if (isProd) {
           // --- 🌍 PRODUCTION MODE ---
           setStatus("🎬 Generating HeyGen avatar video...")
-
+          console.log(heygenBody)
           const response = await fetch("/api/heygen-video", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(heygenBody),
           })
+          console.log(response)
 
           if (!response.ok) throw new Error("HeyGen API request failed.")
           const data = await response.json()
@@ -95,15 +96,27 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
 
           const sampleResponse = await fetch("/video/sample.mp4")
           if (!sampleResponse.ok) throw new Error("Failed to fetch /video/sample.mp4")
-
-          const videoFile = await sampleResponse.blob()
-          const blob = await upload("sample.mp4", videoFile, {
-            access: "public",
-            handleUploadUrl: "/api/upload", // your API route that returns signed URL
-            allowOverwrite: true,
-          })
-
-          videoUrlToProcess = blob.url
+            const videoFile = await sampleResponse.blob()
+          const expectedBlobUrl = `https://YOUR_BLOB_STORE_ID.public.blob.vercel-storage.com/sample.mp4`;
+          videoUrlToProcess = expectedBlobUrl
+          try {
+            // Try to upload, but ignore the "already exists" error
+            await upload("sample.mp4", videoFile, {
+                access: "public",
+                handleUploadUrl: "/api/upload",
+            });
+            setStatus("✅ Sample video uploaded/verified on Vercel Blob.");
+         } catch (uploadError: any) {
+            // Check if the error message indicates the blob already exists
+            if (uploadError?.message?.includes('blob already exists')) {
+                console.warn(" Vercel Blob: sample.mp4 already exists, using existing URL.");
+                setStatus("✅ Sample video already exists on Vercel Blob.");
+                // We already set videoUrlToProcess, so we just continue
+            } else {
+                // If it's a different error, re-throw it
+                throw uploadError;
+            }
+         }
           setStatus("✅ Sample video uploaded to Vercel Blob.")
         }
 
