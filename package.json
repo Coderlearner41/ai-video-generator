@@ -12,6 +12,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffmpeg-installer/win32-x64": "^4.1.0",
     "@ffmpeg/ffmpeg": "^0.12.15",
+    "@ffmpeg/util": "^0.12.2",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "@google/genai": "^1.25.0",
     "@google/generative-ai": "^0.24.1",

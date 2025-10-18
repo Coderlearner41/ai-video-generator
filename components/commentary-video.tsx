@@ -1,11 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card } from "@/components/ui/card"
-import * as ffmpeg from "@ffmpeg/ffmpeg"
-
-
-const { createFFmpeg, fetchFile } = ffmpeg as any
+import { upload } from '@vercel/blob/client'; // Import the Vercel Blob client
 
 interface CommentaryVideoProps {
   avatar: string
@@ -18,55 +15,36 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState<string>("")
   const [status, setStatus] = useState<string>("")
-  const ffmpeg = createFFmpeg({ log: true })
+  
+  // This ref prevents React 18's Strict Mode from running the effect twice
+  const hasStartedGeneration = useRef(false);
+
   const MAX_WORDS = 90
   const trimmedCommentary = commentary.split(" ").slice(0, MAX_WORDS).join(" ")
 
   useEffect(() => {
     async function generateAndProcessVideo() {
-      if (!commentary || commentary.length < 20) return
+      // Guard clause: stop if already running or no text
+      if (hasStartedGeneration.current || !commentary || commentary.length < 20) return
+      hasStartedGeneration.current = true;
+      
       try {
         setLoading(true)
         setError("")
         setVideoUrl("")
-
-        const isProd = process.env.NEXT_PUBLIC_NODE_ENV === "production"
-        let baseVideoUrl = ""
-
-        // =================================
-        // 🧠 1️⃣ Get Base Video
-        // =================================
+    
+        const isProd = process.env.NODE_ENV === "production"
+        let videoUrlToProcess = ""; // This will hold the URL we send to the server
+        
         if (isProd) {
+          // --- PRODUCTION: GET HEYGEN URL ---
           setStatus("🎬 Generating HeyGen avatar video...")
-          const response = await fetch("/api/heygen-video", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              video_inputs: [
-                {
-                  character: {
-                    type: "avatar",
-                    avatar_id: avatar,
-                    avatar_style: "normal",
-                  },
-                  voice: {
-                    type: "text",
-                    input_text: trimmedCommentary,
-                    voice_id: voice,
-                    speed: 1.3,
-                  },
-                },
-              ],
-              dimension: { width: 1280, height: 720 },
-            }),
-          })
-
+          const response = await fetch("/api/heygen-video", { /* ... */ })
           if (!response.ok) throw new Error("HeyGen API request failed.")
           const data = await response.json()
           const videoId = data.data?.video_id
           if (!videoId) throw new Error("No video_id returned from HeyGen.")
-
-          // ⏳ Poll until video is ready
+  
           setStatus("⏳ Waiting for HeyGen video rendering...")
           let ready = false
           while (!ready) {
@@ -74,87 +52,98 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
             const statusRes = await fetch(`/api/heygen-video?id=${videoId}`)
             const statusData = await statusRes.json()
             if (statusData.data?.video_url) {
-              baseVideoUrl = statusData.data.video_url
+              videoUrlToProcess = statusData.data.video_url // We got the URL!
               ready = true
             } else if (statusData.data?.status === "failed") {
               throw new Error("Video generation failed on HeyGen.")
             }
           }
         } else {
-          baseVideoUrl = "/video/sample.mp4"
-          setStatus("🧩 Using sample video from /public/video/sample.mp4")
+          // --- DEVELOPMENT: UPLOAD LOCAL FILE TO BLOB ---
+          setStatus("🧩 Uploading sample video (dev mode)...")
+          const sampleResponse = await fetch("/video/sample.mp4")
+          if (!sampleResponse.ok) throw new Error("Failed to fetch /video/sample.mp4");
+          const videoFile = await sampleResponse.blob();
+
+          // Upload the file to Vercel Blob using our new API route
+          const blob = await upload("sample.mp4", videoFile, {
+            access: 'public',
+            handleUploadUrl: '/api/upload',
+          });
+
+          // Get the public URL from the response
+          videoUrlToProcess = blob.url; 
+          setStatus("✅ Sample video uploaded to Vercel Blob.");
         }
-
-        // =================================
-        // 🧠 2️⃣ Get Chart Image
-        // =================================
-        setStatus("📊 Getting chart image...")
-        let chartImageBase64: string | null = null
-        for (let attempt = 0; attempt < 5; attempt++) {
-          chartImageBase64 = localStorage.getItem("chartImage")
-          if (chartImageBase64) break
-          console.log("⏳ Waiting for chart image...")
-          await new Promise((resolve) => setTimeout(resolve, 1500))
+    
+        // --- COMMON LOGIC (Audio and Chart) ---
+        // These files are small, so Base64 is fine and avoids complexity.
+        
+        let chartImageBase64 = localStorage.getItem("chartImage")
+        if (!chartImageBase64) throw new Error("Chart image not found in localStorage.")
+    
+        setStatus("🎵 Loading background audio...")
+        const audioResponse = await fetch("/song/ipl_11.mp3")
+        if (!audioResponse.ok) throw new Error(`Failed to load audio file.`);
+        const audioBlob = await audioResponse.blob()
+        const audioBase64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader()
+          reader.onloadend = () => resolve(reader.result as string)
+          reader.onerror = reject
+          reader.readAsDataURL(audioBlob)
+        })
+    
+        // --- SEND TO SERVER FOR PROCESSING ---
+        // This request is now TINY! It just has a URL and two small Base64 strings.
+        // This will NOT cause a 413 error.
+        setStatus("🎞️ Processing video...")
+        const processRes = await fetch("/api/process-video", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            type: "url", // We are *always* sending a URL for the video now
+            videoUrl: videoUrlToProcess, 
+            chartImageBase64, 
+            audioBase64 
+          }),
+        })
+    
+        if (!processRes.ok) {
+            const errData = await processRes.json();
+            throw new Error(errData.error || "FFmpeg processing failed.")
         }
-        if (!chartImageBase64) {
-          throw new Error("Chart image not found in localStorage.")
-        }
-
-        // =================================
-        // 🧠 3️⃣ Run FFmpeg in Browser (WASM)
-        // =================================
-        setStatus("🎞️ Processing video in browser with FFmpeg (WASM)...")
-
-        if (!ffmpeg.isLoaded()) await ffmpeg.load()
-
-        const videoFile = await fetchFile(baseVideoUrl)
-        const overlayBlob = await fetchFile(chartImageBase64)
-
-        ffmpeg.FS("writeFile", "input.mp4", videoFile)
-        ffmpeg.FS("writeFile", "overlay.png", overlayBlob)
-
-        await ffmpeg.run(
-          "-i", "input.mp4",
-          "-i", "overlay.png",
-          "-filter_complex", "[0:v][1:v]overlay=enable='between(t,10,15)'[v]",
-          "-map", "[v]",
-          "-c:v", "libx264",
-          "-preset", "veryfast",
-          "output.mp4"
-        )
-
-        const data = ffmpeg.FS("readFile", "output.mp4")
-        const videoBlob = new Blob([data.buffer], { type: "video/mp4" })
-        const outputUrl = URL.createObjectURL(videoBlob)
-
-        setVideoUrl(outputUrl)
+        const processedData = await processRes.json()
+        if (!processedData.video) throw new Error("No processed video returned.")
+    
+        setVideoUrl(processedData.video)
         setStatus("✅ Final video ready!")
+    
       } catch (err: any) {
-        console.error("❌ FFmpeg WASM error:", err)
-        setError(err.message || "Video processing failed.")
+        const errorMessage = err.message || "Unexpected error."
+        console.error("❌ Video processing error:", err)
+        setError(errorMessage)
         setStatus("⚠️ Something went wrong.")
+        alert(`Error:\n\n${errorMessage}`)
       } finally {
         setLoading(false)
       }
     }
-
+    
     generateAndProcessVideo()
-  }, [avatar, voice, commentary])
+
+    return () => {
+        hasStartedGeneration.current = false;
+    }
+  }, [avatar, voice, commentary, trimmedCommentary])
 
   return (
     <Card className="bg-slate-800 border-orange-500/30 p-6 space-y-4">
       <h3 className="text-orange-400 font-bold mb-2">🎥 AI Video Commentary</h3>
       {status && <p className="text-sm text-gray-300">{status}</p>}
-      {loading && <p className="text-orange-400 animate-pulse">Processing... please wait.</p>}
-      {error && <p className="text-red-400">{error}</p>}
+      {loading && <p className="text-orange-400 animate-pulse">Please wait...</p>}
+      {error && <p className="text-red-400 font-semibold">{error}</p>}
       {!loading && videoUrl && (
-        <video
-          key={videoUrl}
-          src={videoUrl}
-          controls
-          autoPlay
-          className="w-full rounded-lg border border-orange-400/30 shadow-lg"
-        />
+        <video key={videoUrl} src={videoUrl} controls autoPlay className="w-full rounded-lg" />
       )}
       {!loading && !videoUrl && !error && (
         <p className="text-gray-400 italic">AI video will appear here once generated.</p>
