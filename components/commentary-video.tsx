@@ -38,7 +38,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
         setVideoUrl("")
         setStatus("🚀 Starting video generation...")
 
-        const isProd = process.env.NEXT_PUBLIC_NODE_ENV === "production"
+        const isProd = process.env.NODE_ENV === "production"
         console.log("isProd:", isProd)
         let videoUrlToProcess = ""
 
@@ -55,6 +55,7 @@ export default function CommentaryVideo({ avatar, voice, commentary }: Commentar
                 type: "text",
                 input_text: trimmedCommentary,
                 voice_id: voice,
+                speed: 1.5
               },
               background: {
                 type: "color",
